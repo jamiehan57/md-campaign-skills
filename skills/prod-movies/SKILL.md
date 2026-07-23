@@ -1,15 +1,19 @@
 ---
 name: prod-movies
-description: Render the paired production movies for MD runs — OVITO/Tachyon structure mp4 + dopant z-profile mp4 — with matched timescale, frame speed, and campaign color code so they play side-by-side frame-for-frame. Triggers - /prod-movies, structure movie, 구조 무비, ovito 렌더 무비, z profile movie, z프로파일 무비, dopant distribution movie, paired movies, 무비 렌더, production movie render.
+description: Render the production visuals for MD runs into the run's rendering/ dir — OVITO/Tachyon structure mp4 + dopant z-profile mp4 (matched timescale/frame speed, campaign color code, frame-aligned for side-by-side playback) + extxyz trajectory export for OVITO. Triggers - /prod-movies, structure movie, 구조 무비, ovito 렌더 무비, z profile movie, z프로파일 무비, dopant distribution movie, paired movies, 무비 렌더, production movie render, xyz export.
 ---
 
-# prod-movies — paired OVITO structure + dopant z-profile movies
+# prod-movies — paired OVITO structure + z-profile movies + xyz export
 
-Renders TWO mp4s from the SAME strided trajectory frames so they line up
-frame-for-frame in side-by-side playback:
+Produces THREE things per production run, ALL into `<struct>/<subdir>/rendering/`
+(NOT `plot/` — plot/ keeps only the static analysis figures):
 
 - `structure_ovito_<run>_<T>K.mp4` — OVITO/Tachyon render, z VERTICAL up, cell tiled 2× along z
 - `dopant_zmovie_<run>_<T>K.mp4` — Dy(+Mg) z-density animation, one box spanning TWO z-periods
+- `traj_<run>.xyz` — extended-XYZ export of the trajectory (OVITO opens it on double-click)
+
+The two mp4s render the SAME strided trajectory frames so they line up
+frame-for-frame in side-by-side playback.
 
 Scripts live in `/home/jamie/SEM_MLCC/02_RUN/03_SURF_HETERO/scripts/`
 (`prod_structure_movie.py`, `prod_dopant_movie.py`). Full settings reference:
@@ -28,6 +32,17 @@ OVITO_THREAD_COUNT=2 QT_QPA_PLATFORM=offscreen \
 # 2) z-profile movie (sem-neq env fine; single-thread BLAS)
 env OMP_NUM_THREADS=1 python scripts/prod_dopant_movie.py \
     --stride 20 --limit 151 --zsigma 1.0 <run_dir>
+
+# 3) extxyz export into rendering/ (COMPLETE runs only — check run_meta.json first)
+env OMP_NUM_THREADS=1 python - <<'EOF'
+from pathlib import Path
+from ase.io.trajectory import Trajectory
+from ase.io import write
+rd = Path("<run_dir>")
+out = rd.parent / "rendering"; out.mkdir(exist_ok=True)
+write(str(out / f"traj_{rd.name}.xyz"), list(Trajectory(str(rd / "traj.traj"))),
+      format="extxyz")
+EOF
 ```
 
 ## Timescale matching — THE rule
@@ -60,11 +75,24 @@ the z-profile block-averages those frames, the structure movie renders the block
   even pixel dims (pad filter in structure script; figsize 4.62×11.2 in the profile script).
 - Continuations: pass the part2 dir; `run_meta.json` `continuation_from`/`t0_ps` triggers
   stitching (seam frame dropped), outputs named `<source>_stitched*`.
-- `--partial` for still-running trajs (`_partial` suffix). Outputs → `<struct>/<subdir>/plot/`.
+- `--partial` for still-running trajs (`_partial` suffix).
+- **Outputs → `<struct>/<subdir>/rendering/`** (convention since 2026-07-23; before that
+  movies went to `plot/`, which now holds only the static analysis figures).
+
+## xyz export rules
+
+- Only export COMPLETE runs (`run_meta.json` status=complete); a `.traj` still being
+  written must not be read to the end (same safety as the `traj2xyz` skill — use that
+  skill's `traj_to_xyz.py` for bulk conversion, then move the .xyz into `rendering/`).
+- Continuation runs: the inline export covers part2 only — for a stitched xyz, export both
+  parts and drop the continuation's first frame (it duplicates the source's last).
+- extxyz is plain text, ~3-5× the .traj size — mention the disk cost for 5 ns runs.
 
 ## Workflow
 
 1. Identify run dir(s) and their traj frame spacing → pick stride per the table.
-2. Run both scripts with matched flags (long renders: `nohup` + log, ONE at a time).
+2. Run both movie scripts with matched flags (long renders: `nohup` + log, ONE at a time),
+   then the xyz export.
 3. Verify: both mp4s have the same frame count (151) and duration; spot-check one PNG
-   (`--keep-png`) or the mp4 with the user before rendering many runs.
+   (`--keep-png`) or the mp4 with the user before rendering many runs;
+   `rendering/` should end up with mp4 ×2 + legend png + xyz.

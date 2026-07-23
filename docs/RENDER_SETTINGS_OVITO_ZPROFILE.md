@@ -96,7 +96,9 @@ env OMP_NUM_THREADS=1 python scripts/prod_dopant_movie.py \
 - Continuation runs are STITCHED: pass the part2 dir (its `run_meta.json` has
   `continuation_from`/`t0_ps`); part1 is prepended, the duplicated seam frame dropped, outputs
   named `<source>_stitched*`.
-- Outputs land in `<struct>/<subdir>/plot/`.
+- **Outputs land in `<struct>/<subdir>/rendering/`** (convention since 2026-07-23): both mp4s,
+  the separate legend PNG, and the extxyz trajectory export (`traj_<run>.xyz`, complete runs
+  only — OVITO opens it directly). `plot/` holds only the static analysis figures.
 
 ## 5. Server etiquette (shared login node)
 

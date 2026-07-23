@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 OVITO/Tachyon structure animation for 03_SURF_HETERO production runs, saved next
-to the static figures in <struct>/<subdir>/plot/ as
+to the static figures in <struct>/<subdir>/rendering/ as
 
     structure_ovito_<run>_<T>K.mp4
 
@@ -216,7 +216,7 @@ def discover():
 
 def animate(rd, partial=False, **kw):
     rd = rd.resolve()
-    outdir = rd.parent / "plot"
+    outdir = rd.parent / "rendering"
     outdir.mkdir(exist_ok=True)
     system = rd.name
     meta = run_meta(rd)
