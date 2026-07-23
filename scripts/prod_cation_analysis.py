@@ -383,6 +383,67 @@ def plot_msd_z_groups(pos, cells, sym, dt, system, T, outdir):
             "band_A": (round(lo, 2), round(hi, 2))}
 
 
+# ------------------------- 5b. dopant z-position paths (direction-resolving)
+def plot_dopant_z_paths(pos, cells, sym, dt, system, T, outdir):
+    """z-position vs time for the dopant groups (Dy_diff / Dy_film / Mg),
+    expressed as SIGNED distance from the film centre (nearest-image), so the
+    direction of out-of-plane motion is visible (MSD loses the sign):
+      each atom  -> thin semi-transparent trace
+      group mean -> solid line (10 ps smooth)
+      group span -> filled min..max band
+    The film band is shaded grey. + = drift toward +z BTO, - = toward -z BTO."""
+    g = dy_film_groups(pos, cells, sym)
+    if g is None:
+        return
+    dy, left, (lo, hi) = g
+    t = np.arange(len(pos)) * dt
+    Lz = cells[0][2, 2]
+    centre = 0.5 * (lo + hi)
+    half = 0.5 * (hi - lo)
+    zw = pos[:, :, 2] % Lz
+    # nearest image to the film centre -> signed offset in [-Lz/2, Lz/2]
+    zrel = ((zw - centre + Lz / 2.0) % Lz) - Lz / 2.0
+    win = max(3, int(round(SMOOTH_PS / dt)))
+    groups = []
+    if left.any():
+        groups.append((f"Dy$_{{diff}}$ (n={int(left.sum())})",
+                       dy[left], H.SPECIES_COLOR.get("Dy", "#3106FC")))
+    if (~left).any():
+        groups.append((f"Dy$_{{film}}$ (n={int((~left).sum())})",
+                       dy[~left], DY_FILM_COLOR))
+    if "Mg" in sym:
+        mg = np.where(sym == "Mg")[0]
+        groups.append((f"Mg (n={len(mg)})", mg,
+                       H.SPECIES_COLOR.get("Mg", "#FB7B15")))
+    fig, ax = plt.subplots(figsize=(10, 5.6))
+    fig.subplots_adjust(left=0.11, right=0.78, bottom=0.14, top=0.90)
+    ax.axhspan(-half, half, color="#d9d9d9", alpha=0.6, zorder=0, lw=0)
+    ax.axhline(0.0, color="#999999", lw=0.8, ls="--", zorder=1)
+    for label, idx, color in groups:
+        Z = zrel[:, idx]                                  # (nfr, n)
+        # Dy_film stays put -> mean line only (no raw traces / range band,
+        # they just clutter the plot); Dy_diff and Mg get the full detail.
+        if color != DY_FILM_COLOR:
+            for j in range(Z.shape[1]):
+                ax.plot(t, Z[:, j], color=color, lw=0.6, alpha=0.22, zorder=2)
+            lo_b = runmean(Z.min(axis=1), win)
+            hi_b = runmean(Z.max(axis=1), win)
+            ax.fill_between(t, lo_b, hi_b, color=color, alpha=0.12, zorder=2, lw=0)
+        ax.plot(t, runmean(Z.mean(axis=1), win), color=color, lw=2.6,
+                label=label, zorder=4)
+    ax.text(0.02, 0.97, f"film band $\\pm${half:.1f} $\\AA$ about its centre "
+            f"(z={centre:.1f} $\\AA$)", transform=ax.transAxes, va="top",
+            fontsize=plt.rcParams["font.size"] * 0.62, color="#666666")
+    ax.set_xlabel("time (ps)")
+    ax.set_ylabel(r"z $-$ film centre ($\AA$)")
+    ax.set_title("Dopant z-position vs time", fontweight="bold")
+    ax.set_xlim(t[0], t[-1])
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0.)
+    fig.savefig(outdir / f"zpath_dopantgroups_{system}_{T}K.png",
+                dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
 # ------------------------------------------------- 6. diffusivity bar plot
 D_FLOOR = 1e-9                 # cm^2/s display floor for log bars
 
@@ -503,6 +564,7 @@ def analyze(rd, partial=False, tmax_ps=None, xyz=False):
     if zg:
         print(f"   Dy groups: {zg['n_diff']} escaped / {zg['n_film']} stayed "
               f"(film band {zg['band_A'][0]}-{zg['band_A'][1]} A)")
+    plot_dopant_z_paths(pos, cells, sym, dt, system, T, outdir)
     plot_diffusivity_bar(pos, cells, sym, dt, system, T, outdir)
     cn_info = plot_cn(pos, cells, sym, dt, system, T, outdir)
     plot_zprofile(pos, cells, sym, dt, system, T, outdir)
