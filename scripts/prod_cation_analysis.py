@@ -365,7 +365,7 @@ def plot_msd_z_groups(pos, cells, sym, dt, system, T, outdir):
                 color=color, lw=2.6, label=label)
     ax.set_xlabel("time (ps)")
     ax.set_ylabel(r"MSD$_z$ ($\AA^2$)")
-    ax.set_title("z-direction MSD: escaped vs film-bound Dy", fontweight="bold")
+    ax.set_title("z-direction MSD", fontweight="bold")
     ax.set_xlim(t[0], t[-1])
     ax.text(0.02, 0.97, f"film band {lo:.1f}-{hi:.1f} $\\AA$ "
             f"(initial Dy span $\\pm${FILM_MARGIN_A:g} $\\AA$)",
