@@ -22,6 +22,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --tlim|--tmax)  args+=(--tmax "$2"); shift 2;;
     --partial)      args+=(--partial); shift;;
+    --xyz)          args+=(--xyz); shift;;
+    --film-ref)     args+=(--film-ref "$2"); shift 2;;
     --local)        mode=local; shift;;
     --sbatch)       mode=sbatch; shift;;
     --sbatch=*)     mode=sbatch; part="${1#--sbatch=}"; shift;;

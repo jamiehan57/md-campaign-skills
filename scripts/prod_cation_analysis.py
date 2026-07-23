@@ -319,6 +319,27 @@ def plot_zprofile(pos, cells, sym, dt, system, T, outdir):
 FILM_MARGIN_A = 2.5            # film band = initial Dy z-span +- this margin
 DY_FILM_COLOR = "#9B93FB"      # light tone of the Dy blue (#3106FC)
 
+# Optional film-band reference: if set (via --film-ref), the band uses the
+# AS-BUILT Dy slab THICKNESS (from a pre-MD reference POSCAR, cell-independent
+# fractional half-width), re-centred on the current frame-0 Dy median -- so
+# equilibration-stage film swelling no longer inflates the band and Dy that
+# left the ORIGINAL film footprint are counted. None -> legacy frame-0 span.
+_FILM_REF_HALFWIDTH_FRAC = None
+
+
+def set_film_ref(path):
+    """Load a reference structure and store the Dy slab fractional half-width."""
+    global _FILM_REF_HALFWIDTH_FRAC
+    from ase.io import read as _read
+    a = _read(str(path), format="vasp")
+    sym = np.array(a.get_chemical_symbols())
+    Lz = a.get_cell()[2, 2]
+    fz = a.get_positions()[:, 2][sym == "Dy"] / Lz
+    _FILM_REF_HALFWIDTH_FRAC = 0.5 * (fz.max() - fz.min())
+    print(f"[film-ref] {path}: Dy slab half-width {_FILM_REF_HALFWIDTH_FRAC:.4f} "
+          f"frac ({_FILM_REF_HALFWIDTH_FRAC * Lz:.1f} A in ref cell)")
+    return _FILM_REF_HALFWIDTH_FRAC
+
 
 def dy_film_groups(pos, cells, sym):
     """Classify Dy atoms by whether the WRAPPED z ever leaves the film band
@@ -330,7 +351,14 @@ def dy_film_groups(pos, cells, sym):
     dy = np.where(sym == "Dy")[0]
     zw = pos[:, dy, 2] % Lz                      # wrapped z (fixed NVT cell)
     z0 = zw[0]
-    lo, hi = z0.min() - FILM_MARGIN_A, z0.max() + FILM_MARGIN_A
+    if _FILM_REF_HALFWIDTH_FRAC is not None:
+        # as-built slab thickness, re-centred on the current film (median is
+        # robust to a few Dy that already left during equilibration)
+        centre = float(np.median(z0))
+        half = _FILM_REF_HALFWIDTH_FRAC * Lz + FILM_MARGIN_A
+        lo, hi = centre - half, centre + half
+    else:
+        lo, hi = z0.min() - FILM_MARGIN_A, z0.max() + FILM_MARGIN_A
     left = ((zw < lo) | (zw > hi)).any(axis=0)
     return dy, left, (float(lo), float(hi))
 
@@ -523,8 +551,14 @@ def discover():
     return runs
 
 
-def analyze(rd, partial=False, tmax_ps=None, xyz=False):
+def analyze(rd, partial=False, tmax_ps=None, xyz=False, film_ref=None):
     rd = rd.resolve()
+    if film_ref is not None:
+        ref = rd.parent / "input.POSCAR" if str(film_ref) == "auto" else Path(film_ref)
+        if ref.exists():
+            set_film_ref(ref)
+        else:
+            print(f"  [film-ref] {ref} not found -- falling back to frame-0 band")
     struct_dir = rd.parent.parent          # <struct>/<01_uncompensated>/<prod_*>
     # plots go in the SUBDIR (01_uncompensated/, 02_compensated_8VO/, ...), not
     # the structure dir -- 03_vba has BOTH an uncompensated and a compensated
@@ -578,16 +612,19 @@ if __name__ == "__main__":
     argv = sys.argv[1:]
     partial = "--partial" in argv
     xyz = "--xyz" in argv
+    film_ref = None
     tmax_ps = None
     args = []
     it = iter([a for a in argv if a not in ("--partial", "--xyz")])
     for a in it:
         if a in ("--tmax", "--tlim"):
             tmax_ps = float(next(it))      # ps; cut the trajectory here
+        elif a == "--film-ref":
+            film_ref = next(it)            # POSCAR path or "auto"
         else:
             args.append(Path(a))
     runs = args or discover()
     if not runs:
         print("no production runs found")
     for r in runs:
-        analyze(r, partial=partial, tmax_ps=tmax_ps, xyz=xyz)
+        analyze(r, partial=partial, tmax_ps=tmax_ps, xyz=xyz, film_ref=film_ref)
