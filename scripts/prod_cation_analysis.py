@@ -388,14 +388,17 @@ D_FLOOR = 1e-9                 # cm^2/s display floor for log bars
 
 
 def plot_diffusivity_bar(pos, cells, sym, dt, system, T, outdir):
-    """Tracer diffusivity per species from the total-MSD slope (Einstein,
-    D = slope/6), Dy split into Dy_diff / Dy_film via the film band. Linear fit
-    over the second half of the window (skips the transient). Log-scale bars,
-    values labelled in cm^2/s (1 A^2/ps = 1e-4 cm^2/s)."""
+    """Tracer diffusivity per species as TWO log-scale bar panels: in-plane
+    (x+y, Einstein D = slope/4) and z (D = slope/2), Dy split into
+    Dy_diff / Dy_film via the film band. Linear fit over the second half of
+    the window. Values labelled in cm^2/s (1 A^2/ps = 1e-4 cm^2/s)."""
     t = np.arange(len(pos)) * dt
     if len(t) < 10:
         return
-    disp2 = ((pos - pos[0]) ** 2).sum(axis=2)          # (nfr, natom) total MSD
+    d = pos - pos[0]
+    panels = (("in-plane (x+y),  D = slope/4",
+               d[:, :, 0] ** 2 + d[:, :, 1] ** 2, 4.0),
+              ("z,  D = slope/2", d[:, :, 2] ** 2, 2.0))
     fit = t >= t[-1] / 2
     g = dy_film_groups(pos, cells, sym)
     bars = []                                          # (label, idx, color)
@@ -413,29 +416,34 @@ def plot_diffusivity_bar(pos, cells, sym, dt, system, T, outdir):
     if "Mg" in sym:
         bars.append(("Mg", np.where(sym == "Mg")[0],
                      H.SPECIES_COLOR.get("Mg", "#FB7B15")))
-    labels, values, colors = [], [], []
-    for label, idx, color in bars:
-        msd = disp2[:, idx].mean(axis=1)
-        slope = np.polyfit(t[fit], msd[fit], 1)[0]     # A^2/ps
-        D = slope / 6.0 * 1e-4                         # cm^2/s
-        labels.append(label); values.append(D); colors.append(color)
-    fig, ax = plt.subplots(figsize=(10, 5.6))
-    fig.subplots_adjust(left=0.13, right=0.96, bottom=0.12, top=0.90)
-    x = np.arange(len(labels))
-    ax.bar(x, [max(v, D_FLOOR) for v in values], color=colors, width=0.62)
-    for xi, v in zip(x, values):
-        ax.text(xi, max(v, D_FLOOR) * 1.15,
-                f"{v:.2g}" if v > D_FLOOR else f"<{D_FLOOR:g}",
-                ha="center", va="bottom",
-                fontsize=plt.rcParams["font.size"] * 0.68)
-    ax.set_yscale("log")
-    ax.set_xticks(x); ax.set_xticklabels(labels)
-    ax.set_ylabel(r"D (cm$^2$/s)")
-    ax.set_title("Tracer diffusivity (MSD slope / 6)", fontweight="bold")
-    ax.set_ylim(bottom=D_FLOOR)
-    ax.text(0.98, 0.97, f"fit {t[fit][0]:.0f}-{t[-1]:.0f} ps",
-            transform=ax.transAxes, ha="right", va="top",
-            fontsize=plt.rcParams["font.size"] * 0.62, color="#666666")
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5.6), sharey=True)
+    fig.subplots_adjust(left=0.10, right=0.97, bottom=0.12, top=0.82,
+                        wspace=0.06)
+    x = np.arange(len(bars))
+    for ax, (lab, disp2, denom) in zip(axes, panels):
+        values = []
+        for label, idx, color in bars:
+            msd = disp2[:, idx].mean(axis=1)
+            slope = np.polyfit(t[fit], msd[fit], 1)[0]     # A^2/ps
+            values.append(slope / denom * 1e-4)            # cm^2/s
+        ax.bar(x, [max(v, D_FLOOR) for v in values],
+               color=[c for _, _, c in bars], width=0.62)
+        for xi, v in zip(x, values):
+            ax.text(xi, max(v, D_FLOOR) * 1.15,
+                    f"{v:.2g}" if v > D_FLOOR else f"<{D_FLOOR:g}",
+                    ha="center", va="bottom",
+                    fontsize=plt.rcParams["font.size"] * 0.62)
+        ax.set_yscale("log")
+        ax.set_xticks(x)
+        ax.set_xticklabels([b[0] for b in bars],
+                           fontsize=plt.rcParams["font.size"] * 0.85)
+        ax.set_title(lab)
+        ax.set_ylim(bottom=D_FLOOR)
+    axes[0].set_ylabel(r"D (cm$^2$/s)")
+    axes[0].text(0.02, 0.97, f"fit {t[fit][0]:.0f}-{t[-1]:.0f} ps",
+                 transform=axes[0].transAxes, ha="left", va="top",
+                 fontsize=plt.rcParams["font.size"] * 0.62, color="#666666")
+    fig.suptitle("Tracer Diffusivity", fontweight="bold", y=1.02)
     fig.savefig(outdir / f"diffusivity_{system}_{T}K.png",
                 dpi=300, bbox_inches="tight")
     plt.close(fig)
