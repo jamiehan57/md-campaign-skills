@@ -31,8 +31,10 @@ env OMP_NUM_THREADS=1 python ~/claude/stability_plots.py
 | Figure | File | Convention |
 |---|---|---|
 | Total MSD | `msd_<run>_<T>K_{raw,smooth}.png` | hop_screen.plot_msd style; needs msd.dat (only exists AFTER completion) |
-| MSD by axis | `msd_xyz_...` | 3 panels x/y/z, shared y |
+| MSD by axis | `msd_xyz_...` | 3 panels x/y/z — **opt-in via `--xyz` since 2026-07-23** (off by default) |
 | MSD in/out-of-plane | `msd_parperp_...` | 2 panels: in-plane (x+y) vs z |
+| z-MSD Dy groups | `msd_z_dopantgroups_..._smooth.png` | SMOOTH ONLY; Dy split by film band (initial Dy z-span ±2.5 Å, wrapped-z test): Dy_diff (escaped, full blue #3106FC) vs Dy_film (stayed, light tone #9B93FB) + Mg; annotated "N / M Dy crossed into BTO" |
+| Diffusivity bars | `diffusivity_...png` | log-scale bars, D = total-MSD slope/6 (fit 2nd half of window), cm²/s; Ba/Ti/O + Dy_diff/Dy_film split + Mg, species colors |
 | CN | `cn_cationO_<run>_<T>K.png` | species-averaged cation-O CN vs t; per-species cutoff from first minimum of r²-normalized X-O histogram; **10×5.6 in exact canvas** (matches stability figure); **NO legend** — saved separately as `cn_cationO_legend_<system>_<T>K.png`; dashed per-species mean-CN guides keep right-side value labels |
 | z-profile | `zprofile_<run>_<T>K.png` | per-element density along z, mean of first vs last 10 frames |
 | Stability | `{etot,temp}_<system>_<T>K_{raw,smooth}.png` | from md.log (0.1 ps): E_tot black, T grey `#858585` with dashed target line; if combined in one stacked twin-axis figure, band-stack the ylims (E top half, T bottom half) or the curves overlap unreadably |

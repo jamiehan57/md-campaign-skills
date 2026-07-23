@@ -314,6 +314,133 @@ def plot_zprofile(pos, cells, sym, dt, system, T, outdir):
     plt.close(fig)
 
 
+
+# --------------------------------------- 5. z-MSD, Dy film-stayers vs escapees
+FILM_MARGIN_A = 2.5            # film band = initial Dy z-span +- this margin
+DY_FILM_COLOR = "#9B93FB"      # light tone of the Dy blue (#3106FC)
+
+
+def dy_film_groups(pos, cells, sym):
+    """Classify Dy atoms by whether the WRAPPED z ever leaves the film band
+    (initial Dy z-span +- FILM_MARGIN_A) within the analysis window.
+    Returns (dy_idx, left_mask, (lo, hi)) or None if no Dy."""
+    if "Dy" not in sym:
+        return None
+    Lz = cells[0][2, 2]
+    dy = np.where(sym == "Dy")[0]
+    zw = pos[:, dy, 2] % Lz                      # wrapped z (fixed NVT cell)
+    z0 = zw[0]
+    lo, hi = z0.min() - FILM_MARGIN_A, z0.max() + FILM_MARGIN_A
+    left = ((zw < lo) | (zw > hi)).any(axis=0)
+    return dy, left, (float(lo), float(hi))
+
+
+def plot_msd_z_groups(pos, cells, sym, dt, system, T, outdir):
+    """z-only MSD with Dy categorised into Dy_diff (escaped the film band at
+    some point) vs Dy_film (never left), tone-split on the Dy blue; Mg overlaid
+    when present. Band test on wrapped z, MSD on the unwrapped paths.
+    Smooth version only (10 ps running mean)."""
+    g = dy_film_groups(pos, cells, sym)
+    if g is None:
+        return None
+    dy, left, (lo, hi) = g
+    t = np.arange(len(pos)) * dt
+    disp2z = (pos[:, :, 2] - pos[0, :, 2]) ** 2
+    win = max(3, int(round(SMOOTH_PS / dt)))
+    groups = []
+    if left.any():
+        groups.append((f"Dy$_{{diff}}$ (n={int(left.sum())})",
+                       dy[left], H.SPECIES_COLOR.get("Dy", "#3106FC")))
+    if (~left).any():
+        groups.append((f"Dy$_{{film}}$ (n={int((~left).sum())})",
+                       dy[~left], DY_FILM_COLOR))
+    if "Mg" in sym:
+        mg = np.where(sym == "Mg")[0]
+        groups.append((f"Mg (n={len(mg)})", mg,
+                       H.SPECIES_COLOR.get("Mg", "#FB7B15")))
+    fig, ax = plt.subplots(figsize=(10, 5.6))
+    fig.subplots_adjust(left=0.11, right=0.78, bottom=0.14, top=0.90)
+    for label, idx, color in groups:
+        ax.plot(t, runmean(disp2z[:, idx].mean(axis=1), win),
+                color=color, lw=2.6, label=label)
+    ax.set_xlabel("time (ps)")
+    ax.set_ylabel(r"MSD$_z$ ($\AA^2$)")
+    ax.set_title("z-direction MSD: escaped vs film-bound Dy", fontweight="bold")
+    ax.set_xlim(t[0], t[-1])
+    ax.text(0.02, 0.97, f"film band {lo:.1f}-{hi:.1f} $\\AA$ "
+            f"(initial Dy span $\\pm${FILM_MARGIN_A:g} $\\AA$)",
+            transform=ax.transAxes, va="top",
+            fontsize=plt.rcParams["font.size"] * 0.62, color="#666666")
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0.)
+    ax.text(0.02, 0.89, f"{int(left.sum())} / {len(dy)} Dy crossed into BTO",
+            transform=ax.transAxes, va="top", fontweight="bold",
+            fontsize=plt.rcParams["font.size"] * 0.75,
+            color=H.SPECIES_COLOR.get("Dy", "#3106FC"))
+    fig.savefig(outdir / f"msd_z_dopantgroups_{system}_{T}K_smooth.png",
+                dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return {"n_diff": int(left.sum()), "n_film": int((~left).sum()),
+            "band_A": (round(lo, 2), round(hi, 2))}
+
+
+# ------------------------------------------------- 6. diffusivity bar plot
+D_FLOOR = 1e-9                 # cm^2/s display floor for log bars
+
+
+def plot_diffusivity_bar(pos, cells, sym, dt, system, T, outdir):
+    """Tracer diffusivity per species from the total-MSD slope (Einstein,
+    D = slope/6), Dy split into Dy_diff / Dy_film via the film band. Linear fit
+    over the second half of the window (skips the transient). Log-scale bars,
+    values labelled in cm^2/s (1 A^2/ps = 1e-4 cm^2/s)."""
+    t = np.arange(len(pos)) * dt
+    if len(t) < 10:
+        return
+    disp2 = ((pos - pos[0]) ** 2).sum(axis=2)          # (nfr, natom) total MSD
+    fit = t >= t[-1] / 2
+    g = dy_film_groups(pos, cells, sym)
+    bars = []                                          # (label, idx, color)
+    for sp in ("Ba", "Ti", "O"):
+        if sp in sym:
+            bars.append((sp, np.where(sym == sp)[0],
+                         H.SPECIES_COLOR.get(sp, "k")))
+    if g is not None:
+        dy, left, _ = g
+        if left.any():
+            bars.append(("Dy$_{diff}$", dy[left],
+                         H.SPECIES_COLOR.get("Dy", "#3106FC")))
+        if (~left).any():
+            bars.append(("Dy$_{film}$", dy[~left], DY_FILM_COLOR))
+    if "Mg" in sym:
+        bars.append(("Mg", np.where(sym == "Mg")[0],
+                     H.SPECIES_COLOR.get("Mg", "#FB7B15")))
+    labels, values, colors = [], [], []
+    for label, idx, color in bars:
+        msd = disp2[:, idx].mean(axis=1)
+        slope = np.polyfit(t[fit], msd[fit], 1)[0]     # A^2/ps
+        D = slope / 6.0 * 1e-4                         # cm^2/s
+        labels.append(label); values.append(D); colors.append(color)
+    fig, ax = plt.subplots(figsize=(10, 5.6))
+    fig.subplots_adjust(left=0.13, right=0.96, bottom=0.12, top=0.90)
+    x = np.arange(len(labels))
+    ax.bar(x, [max(v, D_FLOOR) for v in values], color=colors, width=0.62)
+    for xi, v in zip(x, values):
+        ax.text(xi, max(v, D_FLOOR) * 1.15,
+                f"{v:.2g}" if v > D_FLOOR else f"<{D_FLOOR:g}",
+                ha="center", va="bottom",
+                fontsize=plt.rcParams["font.size"] * 0.68)
+    ax.set_yscale("log")
+    ax.set_xticks(x); ax.set_xticklabels(labels)
+    ax.set_ylabel(r"D (cm$^2$/s)")
+    ax.set_title("Tracer diffusivity (MSD slope / 6)", fontweight="bold")
+    ax.set_ylim(bottom=D_FLOOR)
+    ax.text(0.98, 0.97, f"fit {t[fit][0]:.0f}-{t[-1]:.0f} ps",
+            transform=ax.transAxes, ha="right", va="top",
+            fontsize=plt.rcParams["font.size"] * 0.62, color="#666666")
+    fig.savefig(outdir / f"diffusivity_{system}_{T}K.png",
+                dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
 # ------------------------------------------------------------------- driver
 def discover():
     runs = []
@@ -327,14 +454,18 @@ def discover():
     return runs
 
 
-def analyze(rd, partial=False, tmax_ps=None):
+def analyze(rd, partial=False, tmax_ps=None, xyz=False):
     rd = rd.resolve()
     struct_dir = rd.parent.parent          # <struct>/<01_uncompensated>/<prod_*>
     # plots go in the SUBDIR (01_uncompensated/, 02_compensated_8VO/, ...), not
     # the structure dir -- 03_vba has BOTH an uncompensated and a compensated
     # run with the same prod name, which collided in <struct>/plot/ (2026-07-16).
     outdir = rd.parent / "plot"
-    outdir.mkdir(exist_ok=True)
+    if tmax_ps is not None:
+        # --tmax/--tlim N: cut plots live in their own plot/<N>ps/ subdir
+        # (e.g. plot/3000ps/); the top-level plot/ keeps full-trajectory figures
+        outdir = outdir / f"{tmax_ps:g}ps"
+    outdir.mkdir(parents=True, exist_ok=True)
     system = rd.name                       # e.g. prod_1ns; struct name is the dir
     meta_p = rd / "run_meta.json"
     if meta_p.exists():
@@ -357,8 +488,14 @@ def analyze(rd, partial=False, tmax_ps=None):
     print(f"== {struct_dir.name} / {system}")
     pos, cells, sym, dt, T, _ = load_run(rd, tmax_ps=tmax_ps)
     H.plot_msd(rd, system, T, outdir)
-    plot_msd_xyz(pos, sym, dt, system, T, outdir)
+    if xyz:
+        plot_msd_xyz(pos, sym, dt, system, T, outdir)   # opt-in since 2026-07-23
     plot_msd_par_perp(pos, sym, dt, system, T, outdir)
+    zg = plot_msd_z_groups(pos, cells, sym, dt, system, T, outdir)
+    if zg:
+        print(f"   Dy groups: {zg['n_diff']} escaped / {zg['n_film']} stayed "
+              f"(film band {zg['band_A'][0]}-{zg['band_A'][1]} A)")
+    plot_diffusivity_bar(pos, cells, sym, dt, system, T, outdir)
     cn_info = plot_cn(pos, cells, sym, dt, system, T, outdir)
     plot_zprofile(pos, cells, sym, dt, system, T, outdir)
     for sp, v in cn_info.items():
@@ -370,11 +507,12 @@ def analyze(rd, partial=False, tmax_ps=None):
 if __name__ == "__main__":
     argv = sys.argv[1:]
     partial = "--partial" in argv
+    xyz = "--xyz" in argv
     tmax_ps = None
     args = []
-    it = iter([a for a in argv if a != "--partial"])
+    it = iter([a for a in argv if a not in ("--partial", "--xyz")])
     for a in it:
-        if a == "--tmax":
+        if a in ("--tmax", "--tlim"):
             tmax_ps = float(next(it))      # ps; cut the trajectory here
         else:
             args.append(Path(a))
@@ -382,4 +520,4 @@ if __name__ == "__main__":
     if not runs:
         print("no production runs found")
     for r in runs:
-        analyze(r, partial=partial, tmax_ps=tmax_ps)
+        analyze(r, partial=partial, tmax_ps=tmax_ps, xyz=xyz)
